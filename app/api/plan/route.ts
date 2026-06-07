@@ -1,10 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk'
+import Groq from 'groq-sdk'
 import { CURATOR_SYSTEM_PROMPT } from '@/lib/prompts'
 import { TripPlan } from '@/lib/types'
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-})
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
 
 export async function POST(req: Request) {
   const { prompt } = await req.json()
@@ -13,26 +11,25 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Tell me a bit more about your trip.' }, { status: 400 })
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GROQ_API_KEY) {
     return Response.json({ error: 'API key not configured.' }, { status: 500 })
   }
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-opus-4-8',
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
       max_tokens: 4096,
-      system: CURATOR_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: prompt.trim() }],
+      messages: [
+        { role: 'system', content: CURATOR_SYSTEM_PROMPT },
+        { role: 'user', content: prompt.trim() },
+      ],
     })
 
-    const raw = message.content[0].type === 'text' ? message.content[0].text : ''
-
-    // Claude sometimes wraps in fences despite the prompt — strip just in case
+    const raw = completion.choices[0]?.message?.content ?? ''
     const cleaned = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
 
     const plan: TripPlan = JSON.parse(cleaned)
 
-    // Basic validation so the UI doesn't blow up on a malformed response
     if (!plan.vibe || !Array.isArray(plan.days) || plan.days.length === 0) {
       throw new Error('Response was missing required fields')
     }
